@@ -1,0 +1,35 @@
+{
+  "name": "raas-frontend2",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "nuxi dev",
+    "build": "nuxt build",
+    "start": "nuxt start",
+    "generate": "nuxt generate"
+  },
+  "dependencies": {
+    "@nuxt/image": "^1.9.0",
+    "@tresjs/cientos": "^4.1.0",
+    "@tresjs/core": "^4.3.3",
+    "@types/three": "^0.173.0",
+    "consola": "^3.4.0",
+    "core-js": "^3.25.3",
+    "gsap": "^3.12.7",
+    "nitropack": "^0.0.0",
+    "nuxt": "^3.6.0",
+    "three": "^0.173.0",
+    "trois": "^1.0.3",
+    "troisjs": "^0.3.4",
+    "ufo": "^1.5.4",
+    "urdf-loader": "^0.12.4",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@nuxtjs/tailwindcss": "^6.13.1",
+    "@vue/compiler-sfc": "^3.5.13",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.5.1",
+    "typescript": "^5.1.6"
+  }
+}
