@@ -58,7 +58,7 @@ const loading = ref(false);
 const fetching = ref(false);
 const responseMessage = ref("");
 const API_URL = "http://192.168.137.66:8000/joint_angles/";
-const CURRENT_STATE_URL = "http://192.168.137.66:8000/pose_doosan/";
+const CURRENT_STATE_URL = "http://192.168.137.66:8000/joint_angles/update/";
 
 const camera = shallowRef(null);
 const scene = new THREE.Scene();

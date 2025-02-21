@@ -240,147 +240,198 @@ const sendJointData = async () => {
 
 
      <template>
-      <div class=" flex flex-row gap-8 items-center justify-between min-h-screen bg-gray-100 px-8">
-        <div class="w-1/2 max-w-lg">
-          <h1 class="text-2xl font-semibold mb-4">Joint Movement Control</h1>
-    
-          <!-- Loop through jointSettings array and create a slider with editable value -->
-          <div 
-            v-for="(joint, index) in jointSettings" 
-            :key="index" 
-            class="mb-4 fade-in"
-          >
-            <div class="flex items-center space-x-4">
-              <label :for="'joint' + index" class="block text-gray-700 font-medium">
-                Joint {{ index + 1 }}:
+      <div class="flex h-screen p-4">
+        
+        <!-- ✅ Left Section (60%) -->
+        <div class="w-3/5 flex space-x-4">
+          
+          <!-- ✅ Sliders & Inputs (40%) -->
+          <div class="w-2/3 p-4 border rounded-lg shadow-md">
+            <h2 class="text-lg font-semibold mb-2">Joint Controls</h2>
+            <div v-for="(joint, index) in jointSettings" :key="index" class="mb-4">
+              <label class="font-medium">Joint {{ index + 1 }}</label>
+              <input type="range" v-model="joint.value" :min="joint.min" :max="joint.max" class="w-full mt-2">
+              <p class="text-gray-600 mt-1">Current: {{ joint.currentValue !== undefined ? joint.currentValue.toFixed(2) : '0' }}</p>
+            </div>
+          </div>
+          
+          <!-- ✅ Additional Controls (20%) -->
+          <div class="w-1/3 p-4 border rounded-lg shadow-md">
+            <h2 class="text-lg font-semibold mb-2">Extra Controls</h2>
+            
+            <div class="flex flex-col space-y-4">
+              <!-- Toggle Button -->
+              <label class="flex items-center space-x-2 cursor-pointer">
+                <input type="checkbox" v-model="toggleState" class="hidden">
+                <span class="w-10 h-5 bg-gray-300 rounded-full flex items-center transition duration-300"
+                      :class="{'bg-green-400': toggleState}">
+                  <span class="w-4 h-4 bg-white rounded-full shadow-md transform transition-transform duration-300"
+                        :class="{'translate-x-5': toggleState}"></span>
+                </span>
+                <span class="text-gray-700">Enable Mode</span>
+              </label>
+              
+              <!-- Checkbox -->
+              <label class="flex items-center space-x-2">
+                <input type="checkbox" v-model="checkboxState" class="w-5 h-5 text-blue-600">
+                <span class="text-gray-700">Option 1</span>
               </label>
     
-              <!-- Editable input box for joint value -->
-              <input 
-                type="number" 
-                v-model.number="joint.value" 
-                :min="joint.min" 
-                :max="joint.max" 
-                class="border border-gray-300 rounded px-2 py-1 w-20 text-center"
-              />
+              <!-- Buttons -->
+              <button class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600" @click="sendJointData">
+                Send Data
+              </button>
+              
+              <button class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600" @click="resetJoints">
+                Reset
+              </button>
             </div>
-    
-            <!-- Slider for joint movement -->
-            <input 
-              type="range" 
-              :id="'joint' + index" 
-              v-model="joint.value" 
-              :min="joint.min" 
-              :max="joint.max" 
-              class="block w-full accent-blue-500 mt-2"
-            />
           </div>
     
-          <!-- Button to send joint data -->
-          <button 
-            @click="sendJointData"
-            :disabled="loading"
-            class="bg-blue-600 text-white px-6 py-2 rounded-lg mt-4 hover:bg-blue-700 disabled:opacity-50 fade-in"
-          >
-            {{ loading ? "Sending..." : "Set" }}
-          </button>
-    
-          <!-- Response message -->
-          <p v-if="responseMessage" class="mt-2 text-green-600">{{ responseMessage }}</p>
         </div>
     
-        <!-- Animation Placeholder (Right Side) -->
-        <div class="w-1/2 h-full flex items-center justify-center animation-container">
-          <p class="text-gray-500 text-lg">[Animation Goes Here]</p>
+        <!-- ✅ Right Section (40%) -->
+        <div class="w-2/5 p-4 border rounded-lg shadow-md">
+          <h2 class="text-lg font-semibold mb-2">Robot Simulation</h2>
+          <div id="canvas-container" class="h-full bg-gray-100 flex items-center justify-center">
+            <p class="text-gray-500">[3D Simulation Placeholder]</p>
+          </div>
         </div>
+    
       </div>
     </template>
     
     <script setup>
-    import { ref, onMounted } from 'vue';
+    import { ref, onMounted, shallowRef, nextTick } from "vue";
+    import * as THREE from "three";
+    import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+    import URDFLoader from "urdf-loader";
+    import { gsap } from "gsap";
     
-    // Define joint settings with different min/max values
     const jointSettings = ref([
-      { value: 0, min: -360, max: 360 },  // Joint 1
-      { value: 0, min: -95, max: 95 },    // Joint 2
-      { value: 0, min: -160, max: 160 },  // Joint 3
-      { value: 0, min: -360, max: 360 },  // Joint 4
-      { value: 0, min: -160, max: 160 },  // Joint 5
-      { value: 0, min: -360, max: 360 }   // Joint 6
+        { value: 0, min: -360, max: 360, currentValue: undefined },
+        { value: 0, min: -95, max: 95, currentValue: undefined },
+        { value: 0, min: -160, max: 160, currentValue: undefined },
+        { value: 0, min: -360, max: 360, currentValue: undefined },
+        { value: 0, min: -160, max: 160, currentValue: undefined },
+        { value: 0, min: -360, max: 360, currentValue: undefined }
     ]);
     
+    const toggleState = ref(false);
+    const checkboxState = ref(false);
     const loading = ref(false);
+    const fetching = ref(false);
     const responseMessage = ref("");
-    const API_URL = "http://192.168.29.105:3000/increase_joint/";
+    const API_URL = "http://192.168.137.66:8000/joint_angles/";
+    const CURRENT_STATE_URL = "http://192.168.137.66:8000/joint_angles/update/";
     
-    const sendJointData = async () => {
-      loading.value = true;
-      responseMessage.value = "";
+    const camera = shallowRef(null);
+    const scene = new THREE.Scene();
+    const renderer = shallowRef(null);
+    const controls = shallowRef(null);
+    const robot = shallowRef(null);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
+    directionalLight.position.set(5, 5, 5);
     
-      // Prepare data as JSON
-      const jointData = jointSettings.value.map((joint, index) => ({
-        joint: index + 1,
-        value: Number(joint.value),
-      }));
-    
-      console.log("Sending joint data:", JSON.stringify({ joints: jointData }, null, 2));
-    
-      try {
-        const response = await fetch(API_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ joints: jointData }),
-        });
-    
-        if (!response.ok) {
-          throw new Error(`Failed to send joint data (Status: ${response.status})`);
+    const updateSimulation = (index) => {
+        if (robot.value) {
+            const jointObj = robot.value.joints?.[`joint_${index + 1}`];
+            if (jointObj) {
+                gsap.to(jointObj, { 
+                    duration: 0.5,
+                    ease: "power2.out",
+                    onUpdate: () => {
+                        jointObj.setJointValue(THREE.MathUtils.degToRad(jointSettings.value[index].value));
+                    }
+                });
+            }
         }
-    
-        const result = await response.json();
-        responseMessage.value = result.message || "Data sent successfully!";
-      } catch (error) {
-        console.error("Error sending data:", error);
-        responseMessage.value = "Error: " + error.message;
-      } finally {
-        loading.value = false;
-      }
     };
     
-    // Animation when page loads
+    const sendJointData = async () => {
+        loading.value = true;
+        responseMessage.value = "";
+    
+        const jointData = {
+            joint_angles: jointSettings.value.map(joint => Number(joint.value))
+        };
+    
+        try {
+            const response = await fetch(API_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(jointData),
+            });
+    
+            if (!response.ok) throw new Error(`Failed (Status: ${response.status})`);
+            const result = await response.json();
+            responseMessage.value = result.message || "Data sent successfully!";
+        } catch (error) {
+            console.error("Error:", error);
+            responseMessage.value = "Error: " + error.message;
+        } finally {
+            loading.value = false;
+        }
+    };
+    
+    const fetchCurrentState = async () => {
+        fetching.value = true;
+        responseMessage.value = "";
+    
+        try {
+            const response = await fetch(CURRENT_STATE_URL);
+            if (!response.ok) throw new Error(`Failed to fetch state (Status: ${response.status})`);
+    
+            const result = await response.json();
+            if (Array.isArray(result.joint_angles)) {
+                result.joint_angles.forEach((angle, index) => {
+                    if (jointSettings.value[index]) {
+                        jointSettings.value[index].currentValue = angle;
+                        jointSettings.value[index].value = angle;
+                    }
+                });
+    
+                await nextTick();
+                jointSettings.value.forEach((_, index) => updateSimulation(index));
+            }
+    
+            responseMessage.value = "Current state updated!";
+        } catch (error) {
+            console.error("Error:", error);
+            responseMessage.value = "Error: " + error.message;
+        } finally {
+            fetching.value = false;
+        }
+    };
+    
     onMounted(() => {
-      setTimeout(() => {
-        document.querySelectorAll(".fade-in").forEach(el => {
-          el.classList.add("opacity-100");
+        camera.value = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.value.position.set(5, 1.5, 10);
+        renderer.value = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.value.setSize(window.innerWidth / 2, window.innerHeight);
+        document.querySelector("#canvas-container").appendChild(renderer.value.domElement);
+        controls.value = new OrbitControls(camera.value, renderer.value.domElement);
+        controls.value.enableDamping = true;
+    
+        const loader = new URDFLoader();
+        loader.load("/m1013.blue.urdf", (loadedRobot) => {
+            loadedRobot.scale.set(6, 6, 3.5);
+            loadedRobot.position.set(0, -2.5, 0);
+            loadedRobot.rotation.set(-Math.PI / 2, 0, 0);
+            scene.add(loadedRobot);
+            robot.value = loadedRobot;
         });
-      }, 200);
+    
+        scene.add(ambientLight);
+        scene.add(directionalLight);
+    
+        const animate = () => {
+            requestAnimationFrame(animate);
+            controls.value.update();
+            renderer.value.render(scene, camera.value);
+        };
+        animate();
     });
     </script>
     
-    <style scoped>
-    /* Fade-in animation */
-    .fade-in {
-      opacity: 0;
-      transform: translateY(10px);
-      transition: opacity 0.5s ease-in-out, transform 0.5s ease-in-out;
-    }
-    
-    .opacity-100 {
-      opacity: 1;
-      transform: translateY(0);
-    }
-    
-    /* Placeholder for future animations */
-    .animation-container {
-      background: linear-gradient(135deg, rgba(0, 0, 255, 0.1), rgba(0, 0, 255, 0.05));
-      border-radius: 12px;
-      height: 80vh;
-      width: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    </style>
-    
-` ```
