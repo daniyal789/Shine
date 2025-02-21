@@ -2,6 +2,7 @@
     <div class="flex flex-row gap-8 items-center justify-between min-h-screen bg-gray-100 px-56">
       <div class="w-1/2 max-w-lg">
         <h1 class="text-2xl font-semibold mb-4">Joint Movement Control</h1>
+        
         <div v-for="(joint, index) in jointSettings" :key="index" class="mb-4 fade-in">
           <div class="flex items-center space-x-4">
             <label :for="'joint' + index" class="block text-gray-700 font-medium">
@@ -11,11 +12,15 @@
               class="border border-gray-300 rounded px-2 py-1 w-20 text-center" 
               @input="updateSimulation(index)" />
           </div>
+          
           <input type="range" :id="'joint' + index" v-model="joint.value" :min="joint.min" :max="joint.max"
             class="block w-full accent-blue-500 mt-2" @input="updateSimulation(index)" />
 
-          <!-- Show the current fetched joint value below -->
-          <p class="text-gray-600 mt-1">Current: {{ joint.currentValue !== undefined ? joint.currentValue : 'N/A' }}</p>
+          <!-- ✅ Shows the current fetched joint value -->
+          <p class="text-gray-600 mt-1">
+  Current: {{ joint.currentValue !== undefined ? joint.currentValue.toFixed(2) : '0' }}
+</p>
+
         </div>
         
         <button @click="sendJointData" :disabled="loading" class="bg-blue-600 text-white px-6 py-2 rounded-lg mt-4 hover:bg-blue-700 disabled:opacity-50 fade-in">
@@ -28,6 +33,7 @@
 
         <p v-if="responseMessage" class="mt-2 text-green-600">{{ responseMessage }}</p>
       </div>
+
       <div id="canvas-container" class="w-1/2 h-screen"></div>
     </div>
 </template>
@@ -51,8 +57,8 @@ const jointSettings = ref([
 const loading = ref(false);
 const fetching = ref(false);
 const responseMessage = ref("");
-const API_URL = "http://192.168.137.51:3000/Joint_angle/";
-const CURRENT_STATE_URL = "http://192.168.29.104:3000/get_joint_positions";
+const API_URL = "http://192.168.137.66:8000/joint_angles/";
+const CURRENT_STATE_URL = "http://192.168.137.66:8000/pose_doosan/";
 
 const camera = shallowRef(null);
 const scene = new THREE.Scene();
@@ -67,7 +73,7 @@ const updateSimulation = (index) => {
     if (robot.value) {
         const jointObj = robot.value.joints?.[`joint_${index + 1}`];
         if (jointObj) {
-            gsap.to(jointObj, {
+            gsap.to(jointObj, { 
                 duration: 0.5,
                 ease: "power2.out",
                 onUpdate: () => {
@@ -78,16 +84,23 @@ const updateSimulation = (index) => {
     }
 };
 
+
 const sendJointData = async () => {
     loading.value = true;
     responseMessage.value = "";
-    const jointData = jointSettings.value.map((joint, index) => ({ joint: index + 1, value: Number(joint.value) }));
+
+    // ✅ Convert joint values to a list format
+    const jointData = {
+        joint_angles: jointSettings.value.map(joint => Number(joint.value)) // ✅ Ensure values are numbers
+    };
+
+    console.log("Sending Joint Data:", jointData);
 
     try {
         const response = await fetch(API_URL, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ joints: jointData }),
+            body: JSON.stringify(jointData), // ✅ Send as { joint_angles: [...] }
         });
 
         if (!response.ok) throw new Error(`Failed (Status: ${response.status})`);
@@ -101,6 +114,7 @@ const sendJointData = async () => {
     }
 };
 
+
 const fetchCurrentState = async () => {
     fetching.value = true;
     responseMessage.value = "";
@@ -110,16 +124,22 @@ const fetchCurrentState = async () => {
         if (!response.ok) throw new Error(`Failed to fetch state (Status: ${response.status})`);
 
         const result = await response.json();
-        console.log("Fetched Joint Values:", result.joints); // Debugging
+        console.log("Fetched Joint Values:", result); // Debugging
+        console.log(result)
+        if (Array.isArray(result.joint_angles)) {
+            // ✅ Directly update currentValue for each joint based on array index
+            result.joint_angles.forEach((angle, index) => {
+        if (jointSettings.value[index]) {
+            jointSettings.value[index].currentValue = angle; // Update the `currentValue`
+            jointSettings.value[index].value = angle; // Update the slider value
+         }
+    });
 
-        if (Array.isArray(result.joints)) {
-            // ✅ Update current values for each joint
-            jointSettings.value.forEach((joint, i) => {
-                joint.currentValue = result.joints[i] ?? joint.currentValue;
-            });
+            await nextTick(); // Ensure UI updates before rendering changes
 
-            await nextTick(); // Ensure UI updates before running simulations
+            jointSettings.value.forEach((_, index) => updateSimulation(index));
         }
+        
 
         responseMessage.value = "Current state updated!";
     } catch (error) {
@@ -130,9 +150,10 @@ const fetchCurrentState = async () => {
     }
 };
 
+
 onMounted(() => {
     camera.value = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.value.position.set(0, 1.5, 5);
+    camera.value.position.set(5, 1.5, 10);
     renderer.value = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.value.setSize(window.innerWidth / 2, window.innerHeight);
     document.querySelector("#canvas-container").appendChild(renderer.value.domElement);
@@ -147,6 +168,8 @@ onMounted(() => {
         scene.add(loadedRobot);
         robot.value = loadedRobot;
 
+        
+
         loadedRobot.traverse((child) => {
             if (child.isMesh) {
                 child.castShadow = true;
@@ -155,6 +178,26 @@ onMounted(() => {
         });
     });
 
+    // Add Grid Plane
+    const gridSize = 10;
+    const gridDivisions = 20;
+    const gridHelper = new THREE.GridHelper(gridSize, gridDivisions, 0x444444, 0x222222);
+    gridHelper.position.y = -2.5;
+    scene.add(gridHelper);
+  
+    // Add Semi-Transparent Floor
+    const floorGeometry = new THREE.PlaneGeometry(gridSize, gridSize);
+    const floorMaterial = new THREE.MeshStandardMaterial({
+      color: 0x222222,
+      transparent: true,
+      opacity: 0.3,
+      side: THREE.DoubleSide
+    });
+    const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = -2.51;
+    scene.add(floor);
+  
     scene.add(ambientLight);
     scene.add(directionalLight);
 
