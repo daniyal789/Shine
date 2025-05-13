@@ -1,4 +1,11 @@
 export default defineNuxtConfig({
+  runtimeConfig: {
+    public: {
+      API_URL: process.env.NUXT_PUBLIC_API_URL || "http://localhost:8000/joint_angles/",
+      CURRENT_STATE_URL: process.env.NUXT_PUBLIC_CURRENT_STATE_URL || "http://localhost:8000/joint_angles/update/",
+      STREAM_URL : process.env.NUXT_PUBLIC_STREAM_URL || "http://192.168.29.105:8080/offer"
+    },
+  },
   vue: {
     compilerOptions: {
       // Treat <primitive> as a custom element so Vue doesn't try to resolve it

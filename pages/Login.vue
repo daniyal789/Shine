@@ -107,7 +107,7 @@
       0.1,
       1000
     );
-    camera.value.position.set(0, 1.5, 5);
+    camera.value.position.set(5, 1.5, 10);
   
     renderer.value = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.value.setSize(window.innerWidth / 2, window.innerHeight);
