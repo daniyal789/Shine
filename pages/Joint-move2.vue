@@ -195,6 +195,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import URDFLoader from "urdf-loader";
 import { gsap } from "gsap";
 
+const STREAM_BASE = 'http://192.168.29.22:8000';
 const normalPopup        = ref({ show: false, message: "" });
 const showEmergencyModal = ref(false);
 const recoverySteps      = ref([]);
@@ -333,6 +334,84 @@ async function fetchCurrentState() {
   } finally { fetching.value = false; }
 }
 
+const currentStep = computed(() =>
+  recoverySteps.value[currentStepIndex.value] || { state:'', label: '', detail: '' }
+)
+
+// Map state keys to your stop‐API endpoints
+const stopApiMap = {
+  RECOVERY_SUCTION: `${STREAM_BASE}/process/stop_suction/`,
+  SINK:    `${STREAM_BASE}/process/sink/`,
+}
+
+// Helper: fetch the first message from the recovery SSE and parse it
+function fetchRecoveryListViaSSE() {
+  return new Promise((resolve) => {
+    const recEs = new EventSource(`${STREAM_BASE}/robot_state/recovery/`)
+    recEs.onmessage = (e) => {
+      let pyList = e.data.trim()                    // e.g. "['SUCTION','SINK']"
+      try {
+        // Convert Python quotes → JSON quotes
+        const jsonList = pyList.replace(/'/g, '"')
+        const arr = JSON.parse(jsonList)
+        recEs.close()
+        resolve(Array.isArray(arr) ? arr : [])
+      } catch {
+        recEs.close()
+        resolve([])
+      }
+    }
+    recEs.onerror = () => {
+      recEs.close()
+      resolve([])
+    }
+  })
+}
+
+// Begin the recovery modal flow
+async function beginRecoveryFlow() {
+  console.log('▶ beginRecoveryFlow() called')
+  showEmergencyModal.value = true
+  currentStepIndex.value   = 0
+  expanded.value           = false
+
+  // 1) pull the list via its own SSE
+  const list = await fetchRecoveryListViaSSE()
+  console.log('Fetched recovery list:', list)
+
+  // 2) build your steps
+  recoverySteps.value = list.map(state => ({
+    state,
+    label: state.charAt(0).toUpperCase() + state.slice(1),
+    detail: `Full instructions for ${state}…`
+  }))
+
+  // 3) if empty, fallback to toast
+  if (recoverySteps.value.length === 0) {
+    showEmergencyModal.value      = false
+    normalPopup.value.message     = '⚠️ EMERGENCY—no automatic recovery available!'
+    normalPopup.value.show        = true
+  }
+}
+
+// Resolve the current step, then re-run beginRecoveryFlow
+async function resolveCurrentStep() {
+  const step = currentStep.value
+  if (!step.state) return
+
+  // Call its stop‐API
+  await fetch(stopApiMap[step.state], { method: 'POST' }).catch(console.error)
+
+  // Advance index + reset expander
+  currentStepIndex.value++
+  expanded.value = false
+
+  // Re-fetch & rebuild
+  await beginRecoveryFlow()
+}
+
+
+
 // three.js initialization
 onMounted(() => {
   camera.value = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
@@ -382,140 +461,43 @@ onMounted(() => {
     renderer.value.render(scene, camera.value);
   }
   animate();
-});
-
-
-// map each recovery “state” string to its stop-API endpoint
-const stopApiMap = {
-  suction: "http://192.168.254.12:8000/process/stop_suction/",
-  sink:    "http://192.168.254.12:8000/process/stop_sink/",
-};
-
-// computed accessor for the current recovery step
-const currentStep = computed(() => 
-  recoverySteps.value[currentStepIndex.value] || { label: "", detail: "" }
-);
-
-// ──────────────────────────────────────────────────
-// 1️⃣ Begin Recovery Flow
-// ──────────────────────────────────────────────────
-async function beginRecoveryFlow() {
-  // show modal & reset
-  showEmergencyModal.value = true;
-  currentStepIndex.value   = 0;
-  expanded.value           = false;
-
-  try {
-    const res  = await fetch("http://192.168.254.12:8000/robot_state/recovery/");
-    const list = (await res.json()) || [];
-    recoverySteps.value = list.map(state => ({
-      state,
-      label: state.charAt(0).toUpperCase() + state.slice(1),
-      detail: `Full instructions for ${state} go here…`
-    }));
-  } catch (err) {
-    console.error("Recovery fetch failed:", err);
-    recoverySteps.value = [];
-  }
-
-  // if no automatic steps, fallback to a normal popup
-  if (recoverySteps.value.length === 0) {
-    showEmergencyModal.value = false;
-    normalPopup.value.message = "⚠️ EMERGENCY—no automatic recovery available!";
-    normalPopup.value.show    = true;
-  }
-}
-
-// ──────────────────────────────────────────────────
-// 2️⃣ Resolve Current Step
-// ──────────────────────────────────────────────────
-async function resolveCurrentStep() {
-  const step = currentStep.value;
-  if (!step.state) return;
-
-  // call its stop-API
-  await fetch(stopApiMap[step.state], { method: "POST" }).catch(e => {
-    console.error("Stop API failed:", e);
-  });
-
-  // advance index & reset “see more”
-  currentStepIndex.value++;
-  expanded.value = false;
-
-  // re-fetch list
-  try {
-    const res  = await fetch("http://192.168.254.12:8000/robot_state/recovery/");
-    const list = (await res.json()) || [];
-    recoverySteps.value = list.map(state => ({
-      state,
-      label: state.charAt(0).toUpperCase() + state.slice(1),
-      detail: `Full instructions for ${state} go here…`
-    }));
-  } catch (err) {
-    console.error("Recovery re-fetch failed:", err);
-    recoverySteps.value = [];
-  }
-
-  // close modal if done
-  if (recoverySteps.value.length === 0) {
-    showEmergencyModal.value = false;
-  } else {
-    // clamp index back if we advanced past end
-    if (currentStepIndex.value >= recoverySteps.value.length) {
-      currentStepIndex.value = 0;
-    }
-  }
-}
-
-// ──────────────────────────────────────────────────
-// 3️⃣ SSE Stream for Emergency State
-// ──────────────────────────────────────────────────
-let eventSource = null;
-onMounted(() => {
-  eventSource = new EventSource("http://192.168.254.12:8000/robot_state/stream");
-
+    // --- SSE Handler ---
+    console.log("▶ Setting up SSE listener");
+  eventSource = new EventSource(`${STREAM_BASE}/robot_state/stream`);
   eventSource.onmessage = async (e) => {
-    const raw = e.data.trim();
+    const raw = e.data.trim().toUpperCase();
     console.log("SSE raw data:", raw);
 
-    // 1) empty → clear everything
     if (!raw) {
       showEmergencyModal.value = false;
-      normalPopup.value.show    = false;
+      normalPopup.value.show   = false;
       return;
     }
-
-    // 2) normalize key
-    let key = raw.toUpperCase();
-    if (key === "SAFEOFF") key = "SAFE_OFF";
-
-    console.log("Normalized key:", key);
-
-    // 3) dispatch
-    if (key === "EMERGENCY") {
-      console.log("Entering emergency mode");
+    if (raw === "EMERGENCY") {
+      console.log("→ Detected EMERGENCY");
       normalPopup.value.show = false;
       await beginRecoveryFlow();
-    }
-    else if (key === "SAFE_OFF") {
-      console.log("Safe off received");
-      showEmergencyModal.value     = false;
-      normalPopup.value.message    = "✅ System is now safe.";
-      normalPopup.value.show       = true;
-    }
+    } 
+    else if (raw === "SAFE_OFF" || raw === "SAFEOFF") {
+      console.log("→ Detected SAFE_OFF");
+      showEmergencyModal.value       = false;
+      normalPopup.value.message      = "✅ System is now safe.";
+      normalPopup.value.show         = true;
+    } 
     else {
-      console.log("Showing normal popup:", key);
-      showEmergencyModal.value     = false;
-      normalPopup.value.message    = key;
-      normalPopup.value.show       = true;
+      console.log("→ Detected other state:", raw);
+      showEmergencyModal.value       = false;
+      normalPopup.value.message      = raw;
+      normalPopup.value.show         = true;
     }
   };
-
-  eventSource.onerror = (err) => {
-    console.error("SSE error", err);
+  eventSource.onerror = err => {
+    console.error("SSE error:", err);
     eventSource.close();
   };
 });
+
+let eventSource = null;
 
 onBeforeUnmount(() => {
   if (eventSource) {
