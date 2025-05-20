@@ -195,7 +195,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import URDFLoader from "urdf-loader";
 import { gsap } from "gsap";
 
-const STREAM_BASE = 'http://192.168.29.22:8000';
+const STREAM_BASE = 'http://192.168.254.13:8000';
 const normalPopup        = ref({ show: false, message: "" });
 const showEmergencyModal = ref(false);
 const recoverySteps      = ref([]);
@@ -375,7 +375,7 @@ async function beginRecoveryFlow() {
   currentStepIndex.value   = 0
   expanded.value           = false
 
-  // 1) pull the list via its own SSE
+  // 1) pull the list via your helper
   const list = await fetchRecoveryListViaSSE()
   console.log('Fetched recovery list:', list)
 
@@ -399,16 +399,20 @@ async function resolveCurrentStep() {
   const step = currentStep.value
   if (!step.state) return
 
-  // Call its stop‐API
+  // 1) Call its stop‐API
   await fetch(stopApiMap[step.state], { method: 'POST' }).catch(console.error)
 
-  // Advance index + reset expander
+  // 2) Give the backend a brief moment to update
+  await new Promise(resolve => setTimeout(resolve, 500))
+
+  // 3) Advance index + reset “see more”
   currentStepIndex.value++
   expanded.value = false
 
-  // Re-fetch & rebuild
+  // 4) Re-fetch & rebuild
   await beginRecoveryFlow()
 }
+
 
 
 
@@ -473,7 +477,7 @@ onMounted(() => {
       normalPopup.value.show   = false;
       return;
     }
-    if (raw === "EMERGENCY") {
+    if (raw === "EMERGENCY_STOP") {
       console.log("→ Detected EMERGENCY");
       normalPopup.value.show = false;
       await beginRecoveryFlow();
